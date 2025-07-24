@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  ai-services:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - SECRET_KEY=dev-secret-key-change-in-production
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=lms_user
+      - MYSQL_PASSWORD=lms_password
+      - MYSQL_DATABASE=lms_ai
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - NESTJS_API_URL=http://nestjs-backend:3000
+      - NESTJS_API_KEY=your-nestjs-api-key
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    volumes:
+      - ../app:/app/app
+      - ../logs:/app/logs
+      - ../models:/app/models
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - lms-network
+    restart: unless-stopped
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: lms_ai
+      MYSQL_USER: lms_user
+      MYSQL_PASSWORD: lms_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ../scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - lms-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - lms-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  celery-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      - ENVIRONMENT=development
+      - SECRET_KEY=dev-secret-key-change-in-production
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=lms_user
+      - MYSQL_PASSWORD=lms_password
+      - MYSQL_DATABASE=lms_ai
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    volumes:
+      - ../app:/app/app
+      - ../logs:/app/logs
+      - ../models:/app/models
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - lms-network
+    restart: unless-stopped
+    command: ["celery", "-A", "app.tasks.background", "worker", "--loglevel=info"]
+
+  celery-beat:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      - ENVIRONMENT=development
+      - SECRET_KEY=dev-secret-key-change-in-production
+      - MYSQL_HOST=mysql
+      - REDIS_HOST=redis
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    volumes:
+      - ../app:/app/app
+      - ../logs:/app/logs
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - lms-network
+    restart: unless-stopped
+    command: ["celery", "-A", "app.tasks.background", "beat", "--loglevel=info"]
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  lms-network:
+    driver: bridge

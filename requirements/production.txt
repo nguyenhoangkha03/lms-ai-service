@@ -1,0 +1,9 @@
+-r base.txt
+
+# Production optimizations
+gunicorn==21.2.0
+gevent==23.9.1
+
+# Monitoring
+sentry-sdk[fastapi]==1.38.0
+prometheus-fastapi-instrumentator==6.1.0
